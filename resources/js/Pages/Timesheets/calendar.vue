@@ -65,8 +65,12 @@ const formatHeader = (d) => new Intl.DateTimeFormat("fr-FR", { weekday: "short",
  * Vérifie si un employé possède des heures enregistrées pour une date précise.
  */
 const getEntry = (entries, date) => {
-    // On compare le début de la string date pour éviter les problèmes de format ISO
-    const found = entries?.find(e => e.date.startsWith(date));
+    // Normalise la date recherchée et compare exactement avec la date de l'entrée
+    const normalizedDate = date.split('T')[0]; // S'assure que c'est YYYY-MM-DD
+    const found = entries?.find(e => {
+        const entryDate = e.date.split('T')[0]; // Normalise aussi la date de l'entrée
+        return entryDate === normalizedDate;
+    });
     return found ? { ...found, is_empty: false } : { is_empty: true };
 };
 
@@ -159,10 +163,36 @@ const openBulkEdit = () => {
 const getTotalsData = (timesheet) => {
     if (!timesheet?.entries?.length) return { worked: 0, planned: 0 };
     
-    return timesheet.entries.reduce((acc, entry) => {
+    // Récupère les dates de la période courante
+    const periodStart = props.calendar[0]?.period_start;
+    const periodEnd = props.calendar[0]?.period_end;
+    
+    if (!periodStart || !periodEnd) return { worked: 0, planned: 0 };
+    
+    // Filtre les entrées par période et évite les doublons avec un Set
+    const uniqueDates = new Set();
+    const validEntries = timesheet.entries.filter(entry => {
+        // Normalise la date de l'entrée
+        const entryDate = entry.date.split('T')[0];
+        
+        // Vérifie si la date est dans la période
+        const isInPeriod = entryDate >= periodStart && entryDate <= periodEnd;
+        
+        // Évite les doublons pour la même date
+        if (!isInPeriod || uniqueDates.has(entryDate)) return false;
+        
+        uniqueDates.add(entryDate);
+        return true;
+    });
+    
+    // Calcule les totaux uniquement sur les entrées valides
+    return validEntries.reduce((acc, entry) => {
         const worked = parseFloat(entry.total_hours) || 0;
         const planned = parseFloat(entry.planned_hours) || 0;
-        return { worked: acc.worked + worked, planned: acc.planned + planned };
+        return {
+            worked: acc.worked + worked,
+            planned: acc.planned + planned
+        };
     }, { worked: 0, planned: 0 });
 };
 </script>

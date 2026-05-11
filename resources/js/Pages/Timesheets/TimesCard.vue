@@ -83,6 +83,102 @@ const submit = () => {
         },
     });
 };
+
+/**
+ * FORMATAGE AUTOMATIQUE DES HEURES AU FORMAT HH:MM
+ * Convertit la saisie numérique en format horaire valide
+ */
+const formatTimeInput = (input) => {
+    // Supprime tous les caractères non numériques
+    const numbers = input.replace(/\D/g, '');
+    
+    // Limite à 4 chiffres maximum
+    const limited = numbers.slice(0, 4);
+    
+    if (limited.length <= 2) {
+        return limited;
+    }
+    
+    // Ajoute les deux-points après les 2 premiers chiffres
+    return limited.slice(0, 2) + ':' + limited.slice(2);
+};
+
+/**
+ * VALIDATION DES HEURES
+ * Vérifie que l'heure est valide (00-23:00-59)
+ */
+const isValidTime = (timeString) => {
+    if (!timeString || !timeString.includes(':')) return false;
+    
+    const [hours, minutes] = timeString.split(':');
+    const h = parseInt(hours, 10);
+    const m = parseInt(minutes, 10);
+    
+    return h >= 0 && h <= 23 && m >= 0 && m <= 59;
+};
+
+/**
+ * CONVERSION STRING HH:MM VERS DATE
+ * Convertit une chaîne formatée en objet Date pour le composant Calendar
+ */
+const convertToTimeDate = (timeString) => {
+    if (!timeString || !isValidTime(timeString)) return null;
+    
+    const [hours, minutes] = timeString.split(':');
+    const date = new Date();
+    date.setHours(parseInt(hours, 10), parseInt(minutes, 10), 0, 0);
+    return date;
+};
+
+/**
+ * GESTION DE LA SAISIE CLAVIER POUR CHECK_IN
+ */
+const handleCheckInInput = (event) => {
+    const input = event.target;
+    const cursorPosition = input.selectionStart;
+    
+    // Formatage automatique
+    const formatted = formatTimeInput(input.value);
+    
+    // Validation et mise à jour
+    if (isValidTime(formatted)) {
+        const timeDate = convertToTimeDate(formatted);
+        if (timeDate) {
+            form.check_in = timeDate;
+        }
+    }
+    
+    // Restaure le curseur à la bonne position
+    setTimeout(() => {
+        const newCursorPosition = Math.min(cursorPosition, formatted.length);
+        input.setSelectionRange(newCursorPosition, newCursorPosition);
+    }, 0);
+};
+
+/**
+ * GESTION DE LA SAISIE CLAVIER POUR CHECK_OUT
+ */
+const handleCheckOutInput = (event) => {
+    const input = event.target;
+    const cursorPosition = input.selectionStart;
+    
+    // Formatage automatique
+    const formatted = formatTimeInput(input.value);
+    
+    // Validation et mise à jour
+    if (isValidTime(formatted)) {
+        const timeDate = convertToTimeDate(formatted);
+        if (timeDate) {
+            form.check_out = timeDate;
+        }
+    }
+    
+    // Restaure le curseur à la bonne position
+    setTimeout(() => {
+        const newCursorPosition = Math.min(cursorPosition, formatted.length);
+        input.setSelectionRange(newCursorPosition, newCursorPosition);
+    }, 0);
+};
 </script>
 
 <template>
@@ -103,12 +199,28 @@ const submit = () => {
         <!-- SAISIE DES HORAIRES -->
         <div class="field">
             <label class="font-black text-[10px] uppercase text-gray-500 mb-1 block">{{ data.isBulk ? "2. Heure Arrivée" : "Heure Arrivée" }}</label>
-            <Calendar v-model="form.check_in" timeOnly hourFormat="24" :disabled="isLocked" placeholder="--:--" />
+            <Calendar 
+    v-model="form.check_in" 
+    timeOnly 
+    hourFormat="24" 
+    :disabled="isLocked" 
+    placeholder="--:--"
+    @input="handleCheckInInput"
+    @keydown="(e) => { if (!/[0-9]|Backspace|Delete|Tab|Enter/.test(e.key)) e.preventDefault(); }"
+/>
         </div>
 
         <div class="field">
             <label class="font-black text-[10px] uppercase text-gray-500 mb-1 block">Heure Départ</label>
-            <Calendar v-model="form.check_out" timeOnly hourFormat="24" :disabled="isLocked" placeholder="--:--" />
+            <Calendar 
+    v-model="form.check_out" 
+    timeOnly 
+    hourFormat="24" 
+    :disabled="isLocked" 
+    placeholder="--:--"
+    @input="handleCheckOutInput"
+    @keydown="(e) => { if (!/[0-9]|Backspace|Delete|Tab|Enter/.test(e.key)) e.preventDefault(); }"
+/>
         </div>
 
         <!-- SAISIE DE LA PAUSE -->

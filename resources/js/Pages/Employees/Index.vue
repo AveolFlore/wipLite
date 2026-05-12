@@ -69,7 +69,7 @@ const submitted = ref(false);
 // ---------------------------------------------------------
 const form = useForm({
     id: null,
-    matricule: "", // lecture seule en mode édition
+    matricule: "",
     first_name: "",
     last_name: "",
     birth_date: null,
@@ -79,7 +79,7 @@ const form = useForm({
     position_id: null,
     salary_base: null,
     status: "actif",
-    user_id: null, // optionnel — lien vers un compte utilisateur
+    user_id: null,
 });
 
 const statuses = [
@@ -89,7 +89,7 @@ const statuses = [
 ];
 
 // ---------------------------------------------------------
-// OUVRIR LE DIALOG — création
+// MÉTHODES
 // ---------------------------------------------------------
 const openCreate = () => {
     isEditing.value = false;
@@ -99,21 +99,16 @@ const openCreate = () => {
     dialogVisible.value = true;
 };
 
-// ---------------------------------------------------------
-// OUVRIR LE DIALOG — modification
-// ---------------------------------------------------------
 const openEdit = (employee) => {
     isEditing.value = true;
     submitted.value = false;
     form.clearErrors();
 
     form.id = employee.id;
-    form.matricule = employee.matricule; // affiché en lecture seule
+    form.matricule = employee.matricule;
     form.first_name = employee.first_name;
     form.last_name = employee.last_name;
-    form.birth_date = employee.birth_date
-        ? new Date(employee.birth_date)
-        : null;
+    form.birth_date = employee.birth_date ? new Date(employee.birth_date) : null;
     form.phone = employee.phone ?? "";
     form.email = employee.email;
     form.address = employee.address ?? "";
@@ -125,9 +120,6 @@ const openEdit = (employee) => {
     dialogVisible.value = true;
 };
 
-// ---------------------------------------------------------
-// FERMER LE DIALOG
-// ---------------------------------------------------------
 const closeDialog = () => {
     dialogVisible.value = false;
     submitted.value = false;
@@ -135,12 +127,8 @@ const closeDialog = () => {
     form.clearErrors();
 };
 
-// ---------------------------------------------------------
-// SOUMETTRE LE FORMULAIRE
-// ---------------------------------------------------------
 const submitForm = () => {
     submitted.value = true;
-
     const data = {
         ...form.data(),
         birth_date: form.birth_date
@@ -152,12 +140,7 @@ const submitForm = () => {
         form.transform(() => data).put(route("employees.update", form.id), {
             preserveScroll: true,
             onSuccess: () => {
-                toast.add({
-                    severity: "success",
-                    summary: "Mis à jour",
-                    detail: `${form.first_name} ${form.last_name} a été mis à jour.`,
-                    life: 3000,
-                });
+                toast.add({ severity: "success", summary: "Mis à jour", detail: "Employé mis à jour.", life: 3000 });
                 closeDialog();
             },
         });
@@ -165,37 +148,22 @@ const submitForm = () => {
         form.transform(() => data).post(route("employees.store"), {
             preserveScroll: true,
             onSuccess: () => {
-                toast.add({
-                    severity: "success",
-                    summary: "Créé",
-                    detail: `L'employé a été créé avec succès.`,
-                    life: 3000,
-                });
+                toast.add({ severity: "success", summary: "Créé", detail: "Employé créé avec succès.", life: 3000 });
                 closeDialog();
             },
         });
     }
 };
 
-// ---------------------------------------------------------
-// STATUT — badge coloré
-// ---------------------------------------------------------
 const getStatusSeverity = (status) => {
     switch (status) {
-        case "actif":
-            return "success";
-        case "suspendu":
-            return "warn";
-        case "inactif":
-            return "danger";
-        default:
-            return null;
+        case "actif": return "success";
+        case "suspendu": return "warn";
+        case "inactif": return "danger";
+        default: return null;
     }
 };
 
-// ---------------------------------------------------------
-// EXPORT CSV
-// ---------------------------------------------------------
 const exportCSV = () => dt.value.exportCSV();
 
 // ---------------------------------------------------------
@@ -237,26 +205,58 @@ const confirmDelete = (employee) => {
         message: `Voulez-vous désactiver ${employee.first_name} ${employee.last_name} ?`,
         header: "Confirmation",
         icon: "pi pi-exclamation-triangle",
-        rejectProps: {
-            label: "Annuler",
-            severity: "secondary",
-            variant: "text",
-        },
+        rejectProps: { label: "Annuler", severity: "secondary", variant: "text" },
         acceptProps: { label: "Désactiver", severity: "danger" },
         accept: () => {
             router.delete(route("employees.destroy", employee.id), {
                 preserveScroll: true,
-                onSuccess: () =>
-                    toast.add({
-                        severity: "success",
-                        summary: "Archivé",
-                        detail: `${employee.first_name} ${employee.last_name} a été archivé.`,
-                        life: 3000,
-                    }),
+                onSuccess: () => toast.add({ severity: "success", summary: "Archivé", detail: "Employé archivé.", life: 3000 }),
             });
         },
     });
 };
+
+// ---------------------------------------------------------
+// TOGGLE STATUT (Désactiver / Réactiver)
+// ---------------------------------------------------------
+const toggleStatus = (employee) => {
+    if (employee.status === 'inactif') {
+        // Cas : Réactivation
+        confirm.require({
+            message: `Voulez-vous réactiver ${employee.first_name} ${employee.last_name} ?`,
+            header: "Confirmation de réactivation",
+            icon: "pi pi-info-circle",
+            rejectProps: {
+                label: "Annuler",
+                severity: "secondary",
+                variant: "text",
+            },
+            acceptProps: { label: "Réactiver", severity: "success" },
+            accept: () => {
+                // On utilise PATCH ou PUT vers une route dédiée ou l'update classique
+                // Ici, j'utilise la route 'update' en envoyant juste le nouveau statut
+                router.put(route("employees.update", employee.id), {
+                    ...employee,
+                    status: 'actif',
+                    birth_date: employee.birth_date ? new Date(employee.birth_date).toISOString().split("T")[0] : null,
+                }, {
+                    preserveScroll: true,
+                    onSuccess: () =>
+                        toast.add({
+                            severity: "success",
+                            summary: "Réactivé",
+                            detail: `${employee.first_name} ${employee.last_name} est de nouveau actif.`,
+                            life: 3000,
+                        }),
+                });
+            },
+        });
+    } else {
+        // Cas : Désactivation (On appelle votre fonction existante)
+        confirmDelete(employee);
+    }
+};
+
 </script>
 
 <template>
@@ -377,13 +377,12 @@ const confirmDelete = (employee) => {
                             class="mr-2"
                             @click="openEdit(data)"
                         />
-                        <Button
-                            v-if="data.status !== 'inactif'"
-                            icon="pi pi-trash"
-                            variant="outlined"
-                            rounded
-                            severity="danger"
-                            @click="confirmDelete(data)"
+                         <Button 
+                            :icon="data.status === 'inactif' ? 'pi pi-refresh' : 'pi pi-ban'" 
+                            :severity="data.status === 'inactif' ? 'success' : 'danger'"
+                            variant="outlined" 
+                            rounded 
+                            @click="toggleStatus(data)" 
                         />
                     </template>
                 </Column>
@@ -394,7 +393,7 @@ const confirmDelete = (employee) => {
         <!-- DIALOG — Formulaire Créer / Modifier             -->
         <!-- ================================================ -->
         <Dialog
-            v-model:visible="dialogVisible"
+            v-model="dialogVisible"
             :header="isEditing ? 'Modifier l\'employé' : 'Nouvel employé'"
             :style="{ width: '650px' }"
             :modal="true"

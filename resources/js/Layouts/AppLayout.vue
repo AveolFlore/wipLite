@@ -1,9 +1,13 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue';
-import { Link, usePage, Head } from '@inertiajs/vue3';
+import { Link, usePage, Head, router } from '@inertiajs/vue3';
 import ApplicationLogo from '@/Components/ApplicationLogo.vue';
 import Dropdown from '@/Components/Dropdown.vue';
 import DropdownLink from '@/Components/DropdownLink.vue';
+import Toast from 'primevue/toast';
+import ConfirmDialog from 'primevue/confirmdialog';
+import { useToast } from 'primevue/usetoast';
+import { useConfirm } from 'primevue/useconfirm';
 import {
   LayoutDashboard,
   Users,
@@ -23,18 +27,37 @@ import {
 } from 'lucide-vue-next';
 
 const page = usePage();
+const toast = useToast();
 const activeMainMenu = ref('dashboard');
 const isHoveringSidebar = ref(false);
+
+watch(() => page.props.flash, (flash) => {
+  if (flash.success) {
+    toast.add({ severity: 'success', summary: 'Succès', detail: flash.success, life: 3000 });
+  }
+  if (flash.error) {
+    toast.add({ severity: 'error', summary: 'Erreur', detail: flash.error, life: 5000 });
+  }
+}, { deep: true, immediate: true });
 
 const findActiveMenu = () => {
   const currentPath = page.url.split('?')[0];
   const role = page.props.auth?.role;
   const config = menuConfig[role] ?? menuConfig.tc;
-  
+
+  // Chercher d'abord une correspondance exacte dans les sous-menus
+  for (const [menuId, subMenus] of Object.entries(config.sub)) {
+    if (subMenus.some(sub => sub.href === currentPath)) {
+      activeMainMenu.value = menuId;
+      return;
+    }
+  }
+
+  // Si pas de correspondance exacte, chercher par préfixe (pour les routes de création/édition par ex)
   for (const [menuId, subMenus] of Object.entries(config.sub)) {
     if (subMenus.some(sub => {
       if (sub.href === '/') return currentPath === '/';
-      return currentPath.startsWith(sub.href);
+      return currentPath.startsWith(sub.href + '/') || currentPath === sub.href;
     })) {
       activeMainMenu.value = menuId;
       return;
@@ -90,13 +113,6 @@ watch(() => page.url, findActiveMenu);
 
         { label: 'Liste des employés',     href: '/employees' },
 
-        { label: 'Ajouter un employé',     href: '/employees/create' },
-
-        { label: 'Employés affectés',      href: '/employees/assigned' },
-        { label: 'Employés inactifs',     href: '/employees/inactifs' },
-
-        { label: 'Employés non affectés',  href: '/employees/unassigned' },
-
         { label: 'Historique des employés',href: '/employees/history' },
 
       ],
@@ -105,25 +121,23 @@ watch(() => page.url, findActiveMenu);
 
         { label: 'Liste des campagnes',    href: '/campaigns' },
 
-        { label: 'Créer une campagne',     href: '/campaigns/create' },
+        { label: 'Campagnes actives',      href: '/active/campaigns' },
 
-        { label: 'Campagnes actives',      href: '/campaigns/active' },
-
-        { label: 'Campagnes terminées',    href: '/campaigns/closed' },
+        { label: 'Campagnes inactives',    href: '/inactive/campaigns' },
 
       ],
 
       assignments: [
 
-        { label: 'Affectation CP → Campagne', href: '/assignments/cp' },
+        { label: 'Affectation CP → Campagne', href: '/assign/cp' },
 
-        { label: 'Affectation SUP → CP',      href: '/assignments/sup' },
+        { label: 'Affectation SUP → CP',      href: '/assign/sup' },
 
-        { label: 'Affectation TC → SUP',      href: '/assignments/tc' },
+        { label: 'Affectation TC → SUP',      href: '/assign/tc' },
 
-        { label: 'Vue hiérarchique',          href: '/assignments/hierarchy' },
+        // { label: 'Vue hiérarchique',          href: '/assignments/hierarchy' },
 
-        { label: 'Réaffectations',            href: '/assignments/reassign' },
+        // { label: 'Réaffectations',            href: '/assignments/reassign' },
 
         { label: 'Historique des affectations',href: '/assignments/history' },
 
@@ -266,9 +280,7 @@ watch(() => page.url, findActiveMenu);
 
         { label: 'Modèles de planning',      href: '/planning/models' },
 
-        { label: 'Créer un modèle',          href: '/planning/create' },
-
-        { label: 'Affecter un planning',     href: '/planning/assignments' },
+        { label: 'Affectations des plannings', href: '/planning/assignments' },
 
         { label: 'Validation des plannings', href: '/planning/validate' },
 
@@ -466,6 +478,28 @@ const currentSubMenu = computed(() => {
 
 const hasSubMenu = computed(() => currentSubMenu.value.length > 0);
 const sidebarWidth = computed(() => (isHoveringSidebar.value || !hasSubMenu.value) ? 'w-64' : 'w-20');
+
+const confirm = useConfirm();
+
+const logout = () => {
+  confirm.require({
+    message: 'Êtes-vous sûr de vouloir vous déconnecter ?',
+    header: 'Confirmation de déconnexion',
+    icon: 'pi pi-exclamation-triangle',
+    acceptProps: {
+      label: 'Se déconnecter',
+      severity: 'danger'
+    },
+    rejectProps: {
+      label: 'Annuler',
+      severity: 'secondary',
+      variant: 'text'
+    },
+    accept: () => {
+      router.post(route('logout'));
+    }
+  });
+};
 </script>
 
 <template>
@@ -481,7 +515,7 @@ const sidebarWidth = computed(() => (isHoveringSidebar.value || !hasSubMenu.valu
     >
       <div class="flex items-center px-4 border-b border-blue-100/50 bg-gradient-to-r from-blue-600 to-indigo-600 h-20 flex-shrink-0">
         <Link :href="route('dashboard')" class="flex items-center gap-3">
-          <ApplicationLogo class="h-8 w-auto fill-current text-white flex-shrink-0" />
+          <ApplicationLogo class="h-9 w-auto flex-shrink-0" />
           <span v-if="isHoveringSidebar || !hasSubMenu" class="text-xl font-black text-white tracking-tighter whitespace-nowrap uppercase">WipLite</span>
         </Link>
       </div>
@@ -555,9 +589,11 @@ const sidebarWidth = computed(() => (isHoveringSidebar.value || !hasSubMenu.valu
           <Dropdown align="right" width="56">
             <template #trigger>
               <button class="flex items-center gap-4 p-1 pr-4 rounded-full hover:bg-slate-50 transition-all group">
-                <div class="w-10 h-10 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white font-black text-sm shadow-md group-hover:scale-105 transition-transform">
-                  {{ page.props.auth?.user?.name?.charAt(0)?.toUpperCase() ?? 'U' }}
-                </div>
+                <img 
+                  :src="page.props.auth.user.profile_photo_url" 
+                  :alt="page.props.auth.user.name"
+                  class="w-10 h-10 rounded-full object-cover shadow-md group-hover:scale-105 transition-transform border-2 border-blue-100"
+                >
                 <div class="text-left hidden sm:block">
                   <p class="text-sm font-black text-slate-800 leading-none">{{ page.props.auth?.user?.name }}</p>
                   <p class="text-[10px] font-bold text-blue-500 uppercase tracking-tighter mt-1">{{ page.props.auth?.role }}</p>
@@ -573,9 +609,9 @@ const sidebarWidth = computed(() => (isHoveringSidebar.value || !hasSubMenu.valu
                 <UserCircle class="w-4 h-4" /> Profil
               </DropdownLink>
               <div class="border-t border-slate-50"></div>
-              <DropdownLink :href="route('logout')" method="post" as="button" class="flex items-center gap-2 py-3 font-bold text-red-600">
+              <button @click="logout" class="w-full flex items-center gap-2 py-3 px-4 font-bold text-red-600 hover:bg-red-50 transition-colors">
                 <LogOut class="w-4 h-4" /> Déconnexion
-              </DropdownLink>
+              </button>
             </template>
           </Dropdown>
         </div>
@@ -585,6 +621,8 @@ const sidebarWidth = computed(() => (isHoveringSidebar.value || !hasSubMenu.valu
         <slot />
       </div>
     </main>
+    <Toast />
+    <ConfirmDialog />
   </div>
 </template>
 

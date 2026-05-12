@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Employee;
+use App\Models\EmployeeHistory;
 use App\Models\Position;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -48,17 +49,17 @@ class EmployeeController extends Controller
         ]);
     }
 
-    /** Historique des modifications */
-    public function history(Employee $employee)
+    /**
+     * Historique global — toutes les modifications de tous les employés
+     */
+    public function history(Request $request)
     {
-        $employee->load('position');
-
-        $histories = $employee->histories()
-            ->with('changedBy')
-            ->paginate(15);
+        $histories = EmployeeHistory::with('employee', 'oldPosition', 'newPosition', 'changedBy')
+            ->latest('created_at')
+            ->paginate(15)
+            ->withQueryString();
 
         return Inertia::render('Employees/History', [
-            'employee'  => $employee,
             'histories' => $histories,
         ]);
     }
@@ -81,7 +82,7 @@ class EmployeeController extends Controller
     public function store(Request $request)
     {
         $validated = $request->validate([
-            'user_id'     => ['nullable', 'exists:users,id'],
+            'user_id'     => ['nullable', 'exists:users,id', 'unique:employees,user_id'],
             'first_name'  => ['required', 'string', 'max:100'],
             'last_name'   => ['required', 'string', 'max:100'],
             'birth_date'  => ['required', 'date', 'before:today'],
@@ -98,6 +99,7 @@ class EmployeeController extends Controller
             'birth_date.before'    => 'La date de naissance doit être dans le passé.',
             'email.required'       => 'L\'email est obligatoire.',
             'email.unique'         => 'Cet email est déjà utilisé.',
+            'user_id.unique'       => 'Ce compte utilisateur est déjà associé à un autre employé.',
             'position_id.required' => 'Le poste est obligatoire.',
             'salary_base.required' => 'Le salaire de base est obligatoire.',
             'status.required'      => 'Le statut est obligatoire.',
@@ -117,7 +119,6 @@ class EmployeeController extends Controller
     public function show(Employee $employee)
     {
         $employee->load('position', 'user', 'histories.changedBy');
-        // dd($employee);
         return Inertia::render('Employees/Show', [
             'employee' => $employee,
         ]);
@@ -143,7 +144,7 @@ class EmployeeController extends Controller
     public function update(Request $request, Employee $employee)
     {
         $validated = $request->validate([
-            'user_id'     => ['nullable', 'exists:users,id'],
+            'user_id'     => ['nullable', 'exists:users,id', 'unique:employees,user_id,' . $employee->id],
             'first_name'  => ['sometimes', 'string', 'max:100'],
             'last_name'   => ['sometimes', 'string', 'max:100'],
             'birth_date'  => ['sometimes', 'date', 'before:today'],
@@ -156,6 +157,7 @@ class EmployeeController extends Controller
         ], [
             'birth_date.before'   => 'La date de naissance doit être dans le passé.',
             'email.unique'        => 'Cet email est déjà utilisé par un autre employé.',
+            'user_id.unique'       => 'Ce compte utilisateur est déjà associé à un autre employé.',
             'position_id.exists'  => 'Le poste sélectionné est invalide.',
             'salary_base.numeric' => 'Le salaire doit être un nombre.',
             'status.in'           => 'Le statut est invalide.',

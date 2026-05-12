@@ -4,9 +4,9 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\StoreTimesheetEntryRequest;
 use App\Http\Requests\UpdateTimesheetEntryRequest;
-use App\Models\Employee;
 use App\Models\Timesheet;
 use App\Models\TimesheetEntry;
+use App\Models\PlanningAssignment;
 use Carbon\Carbon;
 use Inertia\Inertia;
 
@@ -24,128 +24,106 @@ class TimesheetEntryController extends Controller
     }
 
     /**
-     * Show the form for creating a new resource.
-     */
-    public function create()
-    {
-        //
-    }
-
-    /**
      * Store a newly created resource in storage.
      */
-public function store(StoreTimesheetEntryRequest $request)
-{
-    $validated = $request->validated();
-    $employeeIds = $request->input('employee_ids', [$request->employee_id]);
+    public function store(StoreTimesheetEntryRequest $request)
+    {
+        $validated = $request->validated();
+        $timesheetIds = $request->input('timesheet_ids', [$validated['timesheet_id']]);
 
-    foreach ($employeeIds as $empId) {
-        $timesheet = Timesheet::firstOrCreate(
-            [
-                'employee_id' => $empId,
-                'period_start' => Carbon::parse($validated['date'])->startOfWeek()->format('Y-m-d'),
-                'period_end' => Carbon::parse($validated['date'])->endOfWeek()->format('Y-m-d'),
-            ],
-            ['status' => 'brouillon']
-        );
+        foreach ($timesheetIds as $tsId) {
+            // Récupération dynamique des heures prévues (planned_hours)
+            $date = Carbon::parse($validated['date']);
+            $dayName = strtolower($date->format('l')); // e.g., 'monday'
+            $columnName = $dayName . '_hours'; // e.g., 'monday_hours'
 
-        if ($timesheet->status === 'soumis') continue;
+            // On cherche l'employé via le timesheet
+            $timesheet = Timesheet::findOrFail($tsId);
 
-        // --- DYNAMISATION DES HEURES PRÉVUES (PLANNED HOURS) ---
-        $date = Carbon::parse($validated['date']);
-        $dayName = strtolower($date->format('l')); // ex: "monday", "tuesday"...
-        $columnName = $dayName . '_hours'; // ex: "monday_hours"
+            // On cherche le planning actif pour cet employé à cette date
+            $assignment = PlanningAssignment::where('employee_id', $timesheet->employee_id)
+                ->where('start_date', '<=', $validated['date'])
+                ->where(function ($q) use ($validated) {
+                    $q->where('end_date', '>=', $validated['date'])
+                        ->orWhereNull('end_date');
+                })
+                ->where('status', 'validé')
+                ->with('planningModel')
+                ->first();
 
-        // On cherche le planning assigné à l'employé à cette date
-        $plannedHours = \DB::table('planning_assignments')
-            ->join('planning_models', 'planning_assignments.planning_model_id', '=', 'planning_models.id')
-            ->where('planning_assignments.employee_id', $empId)
-            ->where('planning_assignments.start_date', '<=', $validated['date'])
-            ->where(function($query) use ($validated) {
-                $query->where('planning_assignments.end_date', '>=', $validated['date'])
-                      ->orWhereNull('planning_assignments.end_date');
-            })
-            ->value("planning_models.$columnName") ?? 0; // 0 si aucun planning trouvé
+            // Si on trouve un planning, on prend les heures prévues, sinon 0
+            $plannedHours = $assignment ? (float)$assignment->planningModel->$columnName : 0.0;
 
-        // --- CALCUL DU RÉEL ---
-        $totalHours = 0;
-        if ($validated['check_in'] && $validated['check_out']) {
-            $start = Carbon::parse($validated['check_in']);
-            $end = Carbon::parse($validated['check_out']);
-            $totalHours = max(0, ($start->diffInMinutes($end) - ($validated['break_duration'] ?? 0)) / 60);
+            // Calcul de la durée de travail (total_hours)
+            $totalHours = 0.0;
+            $overtimeHours = 0.0;
+
+            if (!empty($validated['check_in']) && !empty($validated['check_out'])) {
+                $start = Carbon::parse($validated['check_in']);
+                $end = Carbon::parse($validated['check_out']);
+                $diffInMinutes = $start->diffInMinutes($end);
+
+                // Durée = (Sortie - Arrivée - Pause) / 60
+                $workMinutes = $diffInMinutes - (int)($validated['break_duration'] ?? 0);
+                $totalHours = max(0, $workMinutes / 60);
+
+                // Calcul des heures supplémentaires (écarts)
+                $overtimeHours = $totalHours - $plannedHours;
+            }
+
+            $entry = TimesheetEntry::updateOrCreate(
+                [
+                    'timesheet_id' => $tsId,
+                    'date' => $validated['date'],
+                ],
+                [
+                    'check_in' => $validated['check_in'],
+                    'check_out' => $validated['check_out'],
+                    'break_duration' => $validated['break_duration'] ?? 0,
+                    'total_hours' => $totalHours,
+                    'planned_hours' => $plannedHours,
+                    'overtime_hours' => $overtimeHours,
+                    'comment' => $validated['comment'] ?? null,
+                ]
+            );
+
+            // Mettre à jour le statut de la feuille de temps parente
+            if ($timesheet->status === 'brouillon') {
+                $timesheet->update(['status' => 'valide']);
+            }
         }
 
-        // --- SAUVEGARDE CRUD ---
-        TimesheetEntry::updateOrCreate(
-            ['timesheet_id' => $timesheet->id, 'date' => $validated['date']],
-            [
-                'check_in'       => $validated['check_in'],
-                'check_out'      => $validated['check_out'],
-                'break_duration' => $validated['break_duration'] ?? 0,
-                'total_hours'    => $totalHours,
-                'planned_hours'  => $plannedHours, // Valeur dynamique de la BDD !
-                'overtime_hours' => $totalHours - $plannedHours, // Écart réel
-                'comment'        => $validated['comment']
-            ]
-        );
-
-        if ($timesheet->status === 'brouillon') {
-            $timesheet->update(['status' => 'valide']);
-        }
+        return redirect()->back()->with('success', 'Entrée(s) enregistrée(s) avec succès.');
     }
 
-    return back();
-}
-
-
-
-
-
-
     /**
-     * Display the specified resource.
+     * RÉCUPÉRATION AJAX D'UNE ENTRÉE
+     * Utile pour charger les données d'un jour précis pour un employé.
      */
- public function show($employeeId, $date)
-{
-    // On cherche l'entrée existante via la relation timesheet -> employee_id
-    $entry = TimesheetEntry::whereHas('timesheet', function ($query) use ($employeeId) {
+    public function show($employeeId, $date)
+    {
+        $entry = TimesheetEntry::whereHas('timesheet', function ($query) use ($employeeId) {
             $query->where('employee_id', $employeeId);
         })
-        ->where('date', $date)
-        ->first();
+            ->where('date', $date)
+            ->first();
 
-    return response()->json($entry);
-}
-
+        return response()->json($entry);
+    }
 
     /**
-     * Show the form for editing the specified resource.
+     * SUPPRESSION D'UNE ENTRÉE
+     * Permet de vider une case du calendrier.
      */
-    public function edit(TimesheetEntry $timesheetEntry)
+    public function destroy(TimesheetEntry $entry)
     {
-        //
+        $timesheet = $entry->timesheet;
+
+        // On ne peut supprimer que si la semaine n'est pas verrouillée
+        if ($timesheet->status !== 'soumis') {
+            $entry->delete();
+        }
+
+        return back();
     }
-
-    /**
-     * Update the specified resource in storage.
-     */
-    public function update(UpdateTimesheetEntryRequest $request, TimesheetEntry $timesheetEntry)
-    {
-        //
-    }
-
-    /**
-     * Remove the specified resource from storage.
-     */
- public function destroy(TimesheetEntry $entry)
-{
-    $timesheet = $entry->timesheet;
-    
-    if ($timesheet->status !== 'soumis') {
-        $entry->delete();
-    }
-
-    return back();
-}
-
 }

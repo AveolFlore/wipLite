@@ -17,18 +17,33 @@ import {
 const props = defineProps({
     supervisors: Array,
     models: Array,
+    selected_supervisor_id: [String, Number],
 });
 
 const showSuccessModal = ref(false);
 
 const form = useForm({
-    supervisor_id: null,
+    supervisor_id: props.selected_supervisor_id ? Number(props.selected_supervisor_id) : null,
     planning_model_id: null,
     start_date: null,
     end_date: null,
 });
 
+const startDate = ref(null);
+const endDate = ref(null);
+
+const formatDate = (date) => {
+    if (!date) return null;
+    const d = new Date(date);
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+};
+
 const submit = () => {
+    form.start_date = formatDate(startDate.value);
+    form.end_date = formatDate(endDate.value);
     form.post(route("planning.assignments.store"), {
         onSuccess: () => {
             showSuccessModal.value = true;
@@ -37,7 +52,10 @@ const submit = () => {
 };
 
 const goToIndex = () => {
-    router.visit(route('planning.assignments.index'));
+    showSuccessModal.value = false;
+    setTimeout(() => {
+        router.visit(route('planning.assignments.index'));
+    }, 100);
 };
 </script>
 
@@ -45,22 +63,19 @@ const goToIndex = () => {
     <Head title="Créer une affectation de planning" />
 
     <AppLayout>
-        <template #header>
-            <div class="flex items-center gap-4 mb-6">
-                <Button
-                    @click="goToIndex"
-                    icon="pi pi-arrow-left"
-                    class="!bg-white !text-slate-600 !border-slate-200 !rounded-xl shadow-sm hover:!bg-slate-50"
-                    aria-label="Retour"
-                >
-                    <ArrowLeft class="w-5 h-5" />
-                </Button>
-                <div>
-                    <h2 class="text-2xl font-black text-slate-800">Nouvelle Affectation</h2>
-                    <p class="text-slate-500 text-sm font-medium">Assigner un planning à un superviseur et son équipe</p>
-                </div>
+        <div class="max-w-2xl mx-auto mb-8 flex items-center gap-6 bg-white/50 backdrop-blur-sm p-6 rounded-[2rem] border border-white shadow-sm">
+            <Button
+                @click="goToIndex"
+                class="!bg-white !text-slate-600 !border-slate-200 !rounded-xl shadow-sm hover:!bg-slate-50 !w-12 !h-12 !p-0 flex items-center justify-center"
+                aria-label="Retour"
+            >
+                <ArrowLeft class="w-5 h-5" />
+            </Button>
+            <div>
+                <h2 class="text-2xl font-black text-slate-800 tracking-tight">Nouvelle Affectation</h2>
+                <p class="text-blue-500/70 text-xs font-bold uppercase tracking-widest mt-1">Assigner un planning à un superviseur et son équipe</p>
             </div>
-        </template>
+        </div>
 
         <div class="max-w-2xl mx-auto py-8">
             <form @submit.prevent="submit" class="space-y-6">
@@ -105,7 +120,7 @@ const goToIndex = () => {
                         <div class="flex flex-col gap-3">
                             <label class="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">Date de début</label>
                             <Calendar
-                                v-model="form.start_date"
+                                v-model="startDate"
                                 date-format="yy-mm-dd"
                                 :min-date="new Date()"
                                 placeholder="Sélectionnez la date"
@@ -117,9 +132,9 @@ const goToIndex = () => {
                         <div class="flex flex-col gap-3">
                             <label class="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">Date de fin</label>
                             <Calendar
-                                v-model="form.end_date"
+                                v-model="endDate"
                                 date-format="yy-mm-dd"
-                                :min-date="form.start_date || new Date()"
+                                :min-date="startDate || new Date()"
                                 placeholder="Sélectionnez la date"
                                 :class="{'p-invalid': form.errors.end_date}"
                                 input-class="!w-full !rounded-2xl !py-4 !px-6 !bg-slate-50/50 !border-slate-100 focus:!bg-white focus:!border-blue-500"
@@ -141,7 +156,7 @@ const goToIndex = () => {
         </div>
 
         <Dialog
-            v-model:visible="showSuccessModal"
+            v-model="showSuccessModal"
             modal
             :closable="false"
             :style="{ width: '28rem' }"

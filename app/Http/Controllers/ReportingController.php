@@ -100,6 +100,70 @@ class ReportingController extends Controller
         return $pdf->download('rapport_decisionnel_' . now()->format('Y-m-d') . '.pdf');
     }
 
+    public function hrReport()
+    {
+        return Inertia::render('Reports/Hr', [
+            'stats' => [
+                'total' => Employee::count(),
+                'active' => Employee::where('status', 'actif')->count(),
+                'inactive' => Employee::where('status', 'inactif')->count(),
+                'suspended' => Employee::where('status', 'suspendu')->count(),
+            ],
+            'employees' => Employee::with('position')->latest()->get()
+        ]);
+    }
+
+    public function campaignsReport()
+    {
+        return Inertia::render('Reports/Campaigns', [
+            'campaigns' => Campaign::withCount(['assignments' => function($q) {
+                $q->where('status', 'actif');
+            }])->get()
+        ]);
+    }
+
+    public function assignmentsReport()
+    {
+        return Inertia::render('Reports/Assignments', [
+            'assignments' => Assignment::with(['employee', 'campaign', 'manager', 'position'])
+                ->where('status', 'actif')
+                ->latest()
+                ->get()
+        ]);
+    }
+
+    public function timesheetsReport()
+    {
+        return Inertia::render('Reports/Timesheets', [
+            'stats' => [
+                'totalWorked' => TimesheetEntry::sum('total_hours'),
+                'totalPlanned' => TimesheetEntry::sum('planned_hours'),
+            ],
+            'entries' => TimesheetEntry::with(['timesheet.employee', 'timesheet.validator'])->latest()->take(100)->get()
+        ]);
+    }
+
+    public function teamReport()
+    {
+        $manager = auth()->user()->employee;
+        return Inertia::render('Reports/Team', [
+            'team' => Employee::whereIn('id', function($query) use ($manager) {
+                $query->select('employee_id')->from('assignments')->where('manager_id', $manager?->id)->where('status', 'actif');
+            })->with('position')->get()
+        ]);
+    }
+
+    public function productivityReport()
+    {
+        return Inertia::render('Reports/Productivity', [
+            'stats' => [
+                'globalEfficiency' => TimesheetEntry::where('planned_hours', '>', 0)
+                    ->select(DB::raw('AVG(total_hours / planned_hours) * 100 as avg_eff'))
+                    ->value('avg_eff') ?: 0
+            ]
+        ]);
+    }
+
     /*
     |--------------------------------------------------------------------------
     | DASHBOARD CHEF DE PLATEAU
@@ -214,6 +278,114 @@ class ReportingController extends Controller
             ->groupBy('date')
             ->orderBy('date')
             ->get()
+        ]);
+    }
+
+    /**
+     * Page des alertes et notifications pour l'admin
+     */
+    public function alerts()
+    {
+        // On récupère les 200 dernières alertes pour le filtrage automatique côté client (PrimeVue)
+        return Inertia::render('Dashboard/Admin/Alerts', [
+            'alerts' => ActivityLog::with('user')
+                ->latest()
+                ->take(200)
+                ->get()
+        ]);
+    }
+
+    /**
+     * Rapport RH
+     */
+    public function hr()
+    {
+        return Inertia::render('Reports/Hr', [
+            'stats' => [
+                'total' => Employee::count(),
+                'active' => Employee::where('status', 'actif')->count(),
+                'inactive' => Employee::where('status', 'inactif')->count(),
+            ],
+            'positionDistribution' => DB::table('employees')
+                ->join('positions', 'employees.position_id', '=', 'positions.id')
+                ->select('positions.name', DB::raw('count(*) as count'))
+                ->groupBy('positions.name')
+                ->get()
+        ]);
+    }
+
+    /**
+     * Rapport Campagnes
+     */
+    public function campaigns()
+    {
+        return Inertia::render('Reports/Campaigns', [
+            'campaigns' => Campaign::withCount('assignments')->get(),
+            'stats' => [
+                'total' => Campaign::count(),
+                'active' => Campaign::where('status', 'active')->count(),
+                'closed' => Campaign::where('status', 'closed')->count(),
+            ]
+        ]);
+    }
+
+    /**
+     * Rapport Affectations
+     */
+    public function assignments()
+    {
+        return Inertia::render('Reports/Assignments', [
+            'assignments' => Assignment::with(['employee.user', 'campaign', 'position', 'manager'])->latest()->get()
+        ]);
+    }
+
+    /**
+     * Rapport Heures
+     */
+    public function timesheets()
+    {
+        return Inertia::render('Reports/Timesheets', [
+            'stats' => [
+                'totalHours' => (float) TimesheetEntry::sum('total_hours'),
+                'totalPlanned' => (float) TimesheetEntry::sum('planned_hours'),
+                'totalOvertime' => (float) TimesheetEntry::sum('overtime_hours'),
+            ],
+            'weeklyStats' => TimesheetEntry::select(
+                DB::raw('WEEK(date) as week'),
+                DB::raw('SUM(total_hours) as hours'),
+                DB::raw('SUM(planned_hours) as planned')
+            )
+            ->groupBy('week')
+            ->orderBy('week', 'desc')
+            ->take(12)
+            ->get()
+        ]);
+    }
+
+    /**
+     * Rapport Productivité
+     */
+    public function productivity()
+    {
+        $productivityStats = Employee::withSum('timesheetEntries', 'total_hours')
+            ->withSum('timesheetEntries', 'planned_hours')
+            ->get()
+            ->map(function ($employee) {
+                $worked = (float) $employee->timesheet_entries_sum_total_hours;
+                $planned = (float) $employee->timesheet_entries_sum_planned_hours ?: 1;
+                return [
+                    'id' => $employee->id,
+                    'name' => $employee->first_name . ' ' . $employee->last_name,
+                    'worked' => $worked,
+                    'planned' => $planned,
+                    'ratio' => round(($worked / $planned) * 100, 2)
+                ];
+            })
+            ->sortByDesc('ratio')
+            ->values();
+
+        return Inertia::render('Reports/Productivity', [
+            'productivityStats' => $productivityStats
         ]);
     }
 
